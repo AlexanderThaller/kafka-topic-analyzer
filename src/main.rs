@@ -5,11 +5,13 @@ extern crate futures;
 extern crate log;
 extern crate rdkafka;
 extern crate uuid;
+extern crate chrono;
 
 use clap::{App, Arg};
 use std::collections::HashMap;
 
 mod kafka;
+mod metric;
 
 fn main() {
     env_logger::init();
@@ -43,6 +45,8 @@ fn main() {
     let consumer = kafka::create_client(bootstrap_server);
     kafka::get_topic_offsets(&consumer, topic, &mut partitions, &mut start_offsets, &mut end_offsets);
 
+
     println!("{:?}", start_offsets);
     println!("{:?}", end_offsets);
+    println!("{:?}", partitions);
 }
