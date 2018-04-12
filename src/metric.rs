@@ -5,16 +5,7 @@ type Partition = i32;
 type PartitionedCounterBucket = HashMap<Partition, u64>;
 type MetricRegistry = HashMap<String, PartitionedCounterBucket>;
 
-enum MetricNames {
-    TopicMessagesTotal,
-    TopicMessagesTombstones,
-    TopicMessagesAlive,
-    TopicMessagesKeyNull,
-    TopicMessagesKeyNonNull,
-    TopicMessagesKeySizeSum,
-    TopicMessagesValueSizeSum,
-}
-
+#[derive(Debug)]
 pub struct Metrics {
     registry: MetricRegistry,
     earliest_message: DateTime<Utc>,
@@ -25,7 +16,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
-    fn new(number_of_partitions: i32) -> Metrics {
+    pub fn new(number_of_partitions: i32) -> Metrics {
         let mut mr = MetricRegistry::new();
         let keys = vec![
             "topic.messages.total",
@@ -45,7 +36,7 @@ impl Metrics {
         Metrics {
             registry: mr,
             earliest_message: Utc::now(),
-            latest_message: Utc::now(),
+            latest_message: DateTime::from_utc(NaiveDateTime::from_timestamp(0, 0), Utc),
             largest_message: 0,
             smallest_message: <u64>::max_value(),
             overall_size: 0
@@ -56,60 +47,54 @@ impl Metrics {
         self.overall_size += amount;
     }
 
-    pub fn cmp_and_set_largest_message(&mut self, size: u64) {
+    pub fn cmp_and_set_message_size(&mut self, size: u64) {
         if self.largest_message < size {
             self.largest_message = size;
         }
-    }
-
-    pub fn cmp_and_set_smallest_message(&mut self, size: u64) {
         if self.smallest_message > size {
             self.smallest_message = size;
         }
     }
 
-    pub fn cmp_and_set_earliest_message(&mut self, cmp: DateTime<Utc>) {
+    pub fn cmp_and_set_message_timestamp(&mut self, cmp: DateTime<Utc>) {
         if self.earliest_message.gt(&cmp) {
             self.earliest_message = cmp;
         }
-    }
-
-    pub fn cmp_and_set_latest_message(&mut self, cmp: DateTime<Utc>) {
         if self.latest_message.lt(&cmp) {
             self.latest_message= cmp;
         }
     }
 
     pub fn inc_total(&mut self, p: Partition) {
-        self.increment("topic.messages.total", p);
+        self.increment("topic.messages.total", p, 1);
     }
 
     pub fn inc_tombstones(&mut self, p: Partition) {
-        self.increment("topic.messages.tombstones", p);
+        self.increment("topic.messages.tombstones", p, 1);
     }
 
     pub fn inc_alive(&mut self, p: Partition) {
-        self.increment("topic.messages.alive", p);
+        self.increment("topic.messages.alive", p, 1);
     }
 
     pub fn inc_key_null(&mut self, p: Partition) {
-        self.increment("topic.messages.key.null", p);
+        self.increment("topic.messages.key.null", p, 1);
     }
 
     pub fn inc_key_non_null(&mut self, p: Partition) {
-        self.increment("topic.messages.key.non-null", p);
+        self.increment("topic.messages.key.non-null", p, 1);
     }
 
-    pub fn inc_key_size_sum(&mut self, p: Partition) {
-        self.increment("topic.messages.key-size.sum", p);
+    pub fn inc_key_size_sum(&mut self, p: Partition, amount: u64) {
+        self.increment("topic.messages.key-size.sum", p, amount);
     }
 
-    pub fn inc_value_size_sum(&mut self, p: Partition) {
-        self.increment("topic.messages.value-size.sum", p);
+    pub fn inc_value_size_sum(&mut self, p: Partition, amount: u64) {
+        self.increment("topic.messages.value-size.sum", p, amount);
     }
 
-    fn increment(&mut self, key: &str, p: Partition) {
-        *self.registry.get_mut(key).unwrap().get_mut(&p).unwrap() += 1;
+    fn increment(&mut self, key: &str, p: Partition, amount: u64) {
+        *self.registry.get_mut(key).unwrap().get_mut(&p).unwrap() += amount;
     }
 }
 

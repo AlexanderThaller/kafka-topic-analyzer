@@ -8,7 +8,7 @@ clap = "~2.29"
 env_logger = "~0.5"
 log = "~0.4"
 prettytable-rs = "0.6.7"
-futures = "0.2.0"
+futures = "^0.1.13"
 uuid = { version = "0.6.2", features = ["v4"] }
 chrono = "0.4"
 

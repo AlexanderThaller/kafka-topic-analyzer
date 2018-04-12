@@ -9,6 +9,8 @@ extern crate chrono;
 
 use clap::{App, Arg};
 use std::collections::HashMap;
+use kafka::read_topic_into_metrics;
+use metric::Metrics;
 
 mod kafka;
 mod metric;
@@ -43,10 +45,10 @@ fn main() {
     let topic = matches.value_of("topic").unwrap();
     let bootstrap_server = matches.value_of("bootstrap-server").unwrap();
     let consumer = kafka::create_client(bootstrap_server);
+    debug!("Gathering offsets...");
     kafka::get_topic_offsets(&consumer, topic, &mut partitions, &mut start_offsets, &mut end_offsets);
-
-
-    println!("{:?}", start_offsets);
-    println!("{:?}", end_offsets);
-    println!("{:?}", partitions);
+    debug!("Done.");
+    let mut mr = Metrics::new(partitions.len() as i32);
+    read_topic_into_metrics(topic, &consumer, &mut mr, &partitions, &start_offsets, &end_offsets);
+    println!("{:?}", mr);
 }
