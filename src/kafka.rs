@@ -55,7 +55,6 @@ pub fn read_topic_into_metrics(topic: &str,
                                consumer: &LoggingConsumer,
                                metrics: &mut Metrics,
                                partitions: &Vec<i32>,
-                               start_offsets: &HashMap<i32, i64>,
                                end_offsets: &HashMap<i32, i64>) {
     debug!("Subscribing to {}", topic);
     consumer.subscribe(&[topic]).expect("Can't subscribe to specified topic");
@@ -63,6 +62,11 @@ pub fn read_topic_into_metrics(topic: &str,
     debug!("Starting message consumption...");
 
     let mut seq: u64 = 0;
+
+    let mut still_running = HashMap::<i32, bool>::new();
+    for &p in partitions {
+        still_running.insert(p, true);
+    }
 
     for message in message_stream.wait() {
         match message {
@@ -74,9 +78,12 @@ pub fn read_topic_into_metrics(topic: &str,
             }
             Ok(Ok(m)) => {
                 seq += 1;
+                
                 let partition = m.partition();
+                let offset = m.offset();
                 let timestamp = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(m.timestamp().to_millis().unwrap() / 1000, 0), Utc);
-
+                
+                metrics.inc_total(partition);
                 let mut message_size: u64 = 0;
                 match m.key() {
                     Some(k) => {
@@ -86,7 +93,9 @@ pub fn read_topic_into_metrics(topic: &str,
                         metrics.inc_key_size_sum(partition, k_len);
                         metrics.inc_overall_size(k_len);
                     },
-                    None => {}
+                    None => {
+                        metrics.inc_key_null(partition);
+                    }
                 }
 
                 match m.payload() {
@@ -95,21 +104,40 @@ pub fn read_topic_into_metrics(topic: &str,
                         message_size += v_len;
                         metrics.inc_value_size_sum(partition, v_len);
                         metrics.inc_overall_size(v_len);
+                        metrics.inc_alive(partition);
                     },
-                    None => {}
+                    None => {
+                        metrics.inc_tombstones(partition);
+                    }
                 }
 
                 metrics.cmp_and_set_message_size(message_size);
                 metrics.cmp_and_set_message_timestamp(timestamp);
                 
                 if seq % 50000 == 0 {
-                    println!("{:?}", metrics);
-
+                    println!("[Sq: {} | T: {} | P: {} | O: {} | Ts: {}]",
+                        seq, topic, partition, offset, timestamp);
                 }
                 if let Err(e) = consumer.store_offset(&m) {
                     warn!("Error while storing offset: {}", e);
                 }
+
+                if (offset + 1) >= *end_offsets.get(&partition).unwrap() {
+                    *still_running.get_mut(&partition).unwrap() = false;
+                }
+
+                let mut all_done = true;
+                for (_, running) in &still_running {
+                    if *running == true {
+                        all_done = false;
+                    }
+                }
+
+                if all_done == true {
+                    break;
+                }
             }
         }
     }
+    println!("{:?}", metrics);
 }

@@ -49,6 +49,6 @@ fn main() {
     kafka::get_topic_offsets(&consumer, topic, &mut partitions, &mut start_offsets, &mut end_offsets);
     debug!("Done.");
     let mut mr = Metrics::new(partitions.len() as i32);
-    read_topic_into_metrics(topic, &consumer, &mut mr, &partitions, &start_offsets, &end_offsets);
+    read_topic_into_metrics(topic, &consumer, &mut mr, &partitions, &end_offsets);
     println!("{:?}", mr);
 }
