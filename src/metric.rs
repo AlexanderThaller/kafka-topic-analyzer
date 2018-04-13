@@ -12,7 +12,8 @@ pub struct Metrics {
     latest_message: DateTime<Utc>,
     smallest_message: u64,
     largest_message: u64,
-    overall_size: u64
+    overall_size: u64,
+    overall_count: u64
 }
 
 impl Metrics {
@@ -39,12 +40,17 @@ impl Metrics {
             latest_message: DateTime::from_utc(NaiveDateTime::from_timestamp(0, 0), Utc),
             largest_message: 0,
             smallest_message: <u64>::max_value(),
-            overall_size: 0
+            overall_size: 0,
+            overall_count: 0
         }
     }
 
     pub fn inc_overall_size(&mut self, amount: u64) {
         self.overall_size += amount;
+    }
+
+    pub fn inc_overall_count(&mut self) {
+        self.overall_count += 1;
     }
 
     pub fn cmp_and_set_message_size(&mut self, size: u64) {
@@ -91,6 +97,100 @@ impl Metrics {
 
     pub fn inc_value_size_sum(&mut self, p: Partition, amount: u64) {
         self.increment("topic.messages.value-size.sum", p, amount);
+    }
+    ////////////////////////////////////////////////////////////////
+
+    pub fn total(&self, p: Partition) -> u64 {
+        self.metric("topic.messages.total", p)
+    }
+
+    pub fn tombstones(&self, p: Partition) -> u64 {
+        self.metric("topic.messages.tombstones", p)
+    }
+
+    pub fn alive(&self, p: Partition) -> u64 {
+        self.metric("topic.messages.alive", p)
+    }
+
+    pub fn key_null(&self, p: Partition) -> u64 {
+        self.metric("topic.messages.key.null", p)
+    }
+
+    pub fn key_non_null(&self, p: Partition) -> u64 {
+        self.metric("topic.messages.key.non-null", p)
+    }
+
+    pub fn key_size_sum(&self, p: Partition) -> u64 {
+        self.metric("topic.messages.key-size.sum", p)
+    }
+
+    pub fn value_size_sum(&self, p: Partition) -> u64 {
+        self.metric("topic.messages.value-size.sum", p)
+    }
+
+    pub fn key_size_avg(&self, p: Partition) -> u64 {
+        let key_size_sum = self.key_size_sum(p);
+        if key_size_sum > 0 {
+            self.alive(p) / key_size_sum
+        } else {
+            0
+        }
+    }
+
+    pub fn value_size_avg(&self, p: Partition) -> u64 {
+        let value_size_sum = self.value_size_sum(p);
+        if value_size_sum > 0 {
+            self.alive(p) / value_size_sum
+        } else {
+            0
+        }
+    }
+
+    pub fn message_size_avg(&self, p: Partition) -> u64 {
+        let msg_size_sum = self.key_size_sum(p) + self.value_size_sum(p);
+        if msg_size_sum > 0 {
+            self.alive(p) / msg_size_sum
+        } else {
+            0
+        }
+    }
+
+    pub fn dirty_ratio(&self, p: Partition) -> f32 {
+        let total_messages = self.total(p);
+        let tombstones = self.tombstones(p);
+        if total_messages > 0 && tombstones > 0 {
+            tombstones as f32 / (total_messages as f32 / 100.0f32)
+        } else {
+            0.0f32
+        }
+    }
+
+    pub fn latest_message(&self) -> &DateTime<Utc> {
+        &self.latest_message
+    }
+
+    pub fn earliest_message(&self) -> &DateTime<Utc> {
+        &self.earliest_message
+    }
+
+    pub fn smallest_message(&self) -> u64 {
+        self.smallest_message
+    }
+
+    pub fn largest_message(&self) -> u64 {
+        self.largest_message
+    }
+
+    pub fn overall_count(&self) -> u64 {
+        self.overall_count
+    }
+
+    pub fn overall_size(&self) -> u64 {
+        self.overall_size
+    }
+
+    fn metric(&self, key: &str, p: Partition) -> u64 {
+        *self.registry.get(key).unwrap().get(&p).unwrap()
     }
 
     fn increment(&mut self, key: &str, p: Partition, amount: u64) {

@@ -56,10 +56,10 @@ pub fn read_topic_into_metrics(topic: &str,
                                metrics: &mut Metrics,
                                partitions: &Vec<i32>,
                                end_offsets: &HashMap<i32, i64>) {
-    debug!("Subscribing to {}", topic);
+    info!("Subscribing to {}", topic);
     consumer.subscribe(&[topic]).expect("Can't subscribe to specified topic");
     let message_stream = consumer.start();
-    debug!("Starting message consumption...");
+    info!("Starting message consumption...");
 
     let mut seq: u64 = 0;
 
@@ -78,13 +78,16 @@ pub fn read_topic_into_metrics(topic: &str,
             }
             Ok(Ok(m)) => {
                 seq += 1;
-                
                 let partition = m.partition();
                 let offset = m.offset();
                 let timestamp = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(m.timestamp().to_millis().unwrap() / 1000, 0), Utc);
-                
-                metrics.inc_total(partition);
                 let mut message_size: u64 = 0;
+                let mut empty_key = false;
+                let mut empty_value = false;
+
+                metrics.inc_overall_count();
+                metrics.inc_total(partition);
+                
                 match m.key() {
                     Some(k) => {
                         metrics.inc_key_non_null(partition);
@@ -94,6 +97,7 @@ pub fn read_topic_into_metrics(topic: &str,
                         metrics.inc_overall_size(k_len);
                     },
                     None => {
+                        empty_key = true;
                         metrics.inc_key_null(partition);
                     }
                 }
@@ -107,17 +111,22 @@ pub fn read_topic_into_metrics(topic: &str,
                         metrics.inc_alive(partition);
                     },
                     None => {
+                        empty_value = true;
                         metrics.inc_tombstones(partition);
                     }
                 }
-
-                metrics.cmp_and_set_message_size(message_size);
+                
                 metrics.cmp_and_set_message_timestamp(timestamp);
+
+                if !empty_key && !empty_value {
+                    metrics.cmp_and_set_message_size(message_size);
+                }
                 
                 if seq % 50000 == 0 {
-                    println!("[Sq: {} | T: {} | P: {} | O: {} | Ts: {}]",
+                    info!("[Sq: {} | T: {} | P: {} | O: {} | Ts: {}]",
                         seq, topic, partition, offset, timestamp);
                 }
+
                 if let Err(e) = consumer.store_offset(&m) {
                     warn!("Error while storing offset: {}", e);
                 }
@@ -139,5 +148,4 @@ pub fn read_topic_into_metrics(topic: &str,
             }
         }
     }
-    println!("{:?}", metrics);
 }
