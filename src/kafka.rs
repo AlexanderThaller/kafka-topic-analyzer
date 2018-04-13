@@ -12,7 +12,6 @@ use uuid::Uuid;
 use chrono::Utc;
 use rdkafka::message::Message;
 use chrono::prelude::*;
-use tokio_core::reactor::Core;
 
 pub struct LoggingConsumerContext;
 
