@@ -131,7 +131,7 @@ impl Metrics {
     pub fn key_size_avg(&self, p: Partition) -> u64 {
         let key_size_sum = self.key_size_sum(p);
         if key_size_sum > 0 {
-            self.alive(p) / key_size_sum
+            key_size_sum / self.alive(p)
         } else {
             0
         }
@@ -140,7 +140,7 @@ impl Metrics {
     pub fn value_size_avg(&self, p: Partition) -> u64 {
         let value_size_sum = self.value_size_sum(p);
         if value_size_sum > 0 {
-            self.alive(p) / value_size_sum
+            value_size_sum / self.alive(p)
         } else {
             0
         }
@@ -149,7 +149,7 @@ impl Metrics {
     pub fn message_size_avg(&self, p: Partition) -> u64 {
         let msg_size_sum = self.key_size_sum(p) + self.value_size_sum(p);
         if msg_size_sum > 0 {
-            self.alive(p) / msg_size_sum
+            msg_size_sum / self.alive(p)
         } else {
             0
         }
@@ -190,7 +190,7 @@ impl Metrics {
     }
 
     fn metric(&self, key: &str, p: Partition) -> u64 {
-        *self.registry.get(key).unwrap().get(&p).unwrap()
+        self.registry[key][&p]
     }
 
     fn increment(&mut self, key: &str, p: Partition, amount: u64) {

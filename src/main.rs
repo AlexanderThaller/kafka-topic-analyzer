@@ -52,19 +52,22 @@ fn main() {
     let topic = matches.value_of("topic").unwrap();
     let bootstrap_server = matches.value_of("bootstrap-server").unwrap();
     let consumer = kafka::create_client(bootstrap_server);
-    debug!("Gathering offsets...");
+    info!("Gathering offsets...");
     kafka::get_topic_offsets(&consumer, topic, &mut partitions, &mut start_offsets, &mut end_offsets);
-    debug!("Done.");
+    info!("Done.");
     partitions.sort();
     let mut mr = Metrics::new(partitions.len() as i32);
+
+    info!("Start processing...");
     read_topic_into_metrics(topic, &consumer, &mut mr, &partitions, &end_offsets);
 
 
     let duration_secs = start_time.elapsed().as_secs();
-    // Print general info:
+
     println!();
     println!("{}", "=".repeat(120));
     println!("Calculating statistics...");
+    println!("Topic {}", topic);
     println!("Scanning took: {} seconds", duration_secs);
     println!("Estimated Msg/s: {}", (mr.overall_count() / duration_secs));
     println!("{}", "-".repeat(120));
@@ -80,20 +83,21 @@ fn main() {
     table.add_row(row!["P", "|< OS", ">| OS", "Total", "Alive", "Tmb", "DR", "K Null", "K !Null", "P-Bytes", "K-Bytes", "V-Bytes", "A K-Sz", "A V-Sz", "A M-Sz"]);
 
     for partition in partitions {
+        let key_size_avg = mr.key_size_avg(partition);
         table.add_row(Row::new(vec![
-            Cell::new(format!("{}", partition).as_str()),
-            Cell::new(format!("{}", start_offsets.get(&partition).unwrap()).as_str()),
-            Cell::new(format!("{}", end_offsets.get(&partition).unwrap()).as_str()),
-            Cell::new(format!("{}", mr.total(partition)).as_str()),
-            Cell::new(format!("{}", mr.alive(partition)).as_str()),
-            Cell::new(format!("{}", mr.tombstones(partition)).as_str()),
-            Cell::new(format!("{}", mr.dirty_ratio(partition)).as_str()), // DR
-            Cell::new(format!("{}", mr.key_null(partition)).as_str()),
-            Cell::new(format!("{}", mr.key_non_null(partition)).as_str()),
-            Cell::new(format!("{}", mr.key_size_sum(partition) + mr.value_size_sum(partition)).as_str()),
-            Cell::new(format!("{}", mr.key_size_sum(partition)).as_str()),
-            Cell::new(format!("{}", mr.value_size_sum(partition)).as_str()),
-            Cell::new(format!("{}", mr.key_size_avg(partition)).as_str()), // A-Key-Size
+            Cell::new(format!("{}", partition).as_str()), // P
+            Cell::new(format!("{}", &start_offsets[&partition]).as_str()), // |< OS
+            Cell::new(format!("{}", &end_offsets[&partition]).as_str()), // OS >|
+            Cell::new(format!("{}", mr.total(partition)).as_str()), // Total
+            Cell::new(format!("{}", mr.alive(partition)).as_str()), // Alive
+            Cell::new(format!("{}", mr.tombstones(partition)).as_str()), // TB
+            Cell::new(format!("{0:.4}", mr.dirty_ratio(partition)).as_str()), // DR
+            Cell::new(format!("{}", mr.key_null(partition)).as_str()), // K Null
+            Cell::new(format!("{}", mr.key_non_null(partition)).as_str()), // K !Null
+            Cell::new(format!("{}", mr.key_size_sum(partition) + mr.value_size_sum(partition)).as_str()), // P-Bytes
+            Cell::new(format!("{}", mr.key_size_sum(partition)).as_str()), // K-Bytes
+            Cell::new(format!("{}", mr.value_size_sum(partition)).as_str()), // V-Bytes
+            Cell::new(format!("{}", key_size_avg).as_str()), // A-Key-Size
             Cell::new(format!("{}", mr.value_size_avg(partition)).as_str()), // A-V-Size
             Cell::new(format!("{}", mr.message_size_avg(partition)).as_str()), // A-M-Size
         ]));

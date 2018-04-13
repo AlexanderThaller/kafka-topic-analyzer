@@ -34,13 +34,22 @@ pub fn create_client(bootstrap_server: &str) -> LoggingConsumer {
         .set("bootstrap.servers", bootstrap_server)
         .set("enable.partition.eof", "false")
         .set("auto.offset.reset", "earliest")
+        .set("enable.auto.commit", "false")
+//        .set("socket.nagle.disable", "true")
+//        .set("socket.keepalive.enable", "true")
+        .set("client.id", "topic-analyzer")
+
+//        .set("fetch.wait.max.ms", "300")
+        .set("queue.buffering.max.ms", "1000")
+        .set("batch.num.messages", "5000")
+
         .set_log_level(RDKafkaLogLevel::Debug)
         .create_with_context(LoggingConsumerContext)
         .expect("Consumer creation failed")
 }
 
 pub fn get_topic_offsets(consumer: &LoggingConsumer, topic: &str, parts: &mut Vec<i32>, start_offsets: &mut HashMap<i32, i64>, end_offsets: &mut HashMap<i32, i64>) {
-    let md = consumer.fetch_metadata(Option::from(topic), Duration::new(1, 0)).unwrap_or_else(|e| { panic!("Error fetching metadata: {}", e) });
+    let md = consumer.fetch_metadata(Option::from(topic), Duration::new(10, 0)).unwrap_or_else(|e| { panic!("Error fetching metadata: {}", e) });
     let topic_metadata = md.topics().first().unwrap_or_else(|| { panic!("Topic not found!") });
 
     for partition in topic_metadata.partitions() {
@@ -54,7 +63,7 @@ pub fn get_topic_offsets(consumer: &LoggingConsumer, topic: &str, parts: &mut Ve
 pub fn read_topic_into_metrics(topic: &str,
                                consumer: &LoggingConsumer,
                                metrics: &mut Metrics,
-                               partitions: &Vec<i32>,
+                               partitions: &[i32],
                                end_offsets: &HashMap<i32, i64>) {
     info!("Subscribing to {}", topic);
     consumer.subscribe(&[topic]).expect("Can't subscribe to specified topic");
@@ -87,7 +96,7 @@ pub fn read_topic_into_metrics(topic: &str,
 
                 metrics.inc_overall_count();
                 metrics.inc_total(partition);
-                
+
                 match m.key() {
                     Some(k) => {
                         metrics.inc_key_non_null(partition);
@@ -115,13 +124,13 @@ pub fn read_topic_into_metrics(topic: &str,
                         metrics.inc_tombstones(partition);
                     }
                 }
-                
+
                 metrics.cmp_and_set_message_timestamp(timestamp);
 
                 if !empty_key && !empty_value {
                     metrics.cmp_and_set_message_size(message_size);
                 }
-                
+
                 if seq % 50000 == 0 {
                     info!("[Sq: {} | T: {} | P: {} | O: {} | Ts: {}]",
                         seq, topic, partition, offset, timestamp);
@@ -136,13 +145,13 @@ pub fn read_topic_into_metrics(topic: &str,
                 }
 
                 let mut all_done = true;
-                for (_, running) in &still_running {
-                    if *running == true {
+                for running in still_running.values() {
+                    if *running {
                         all_done = false;
                     }
                 }
 
-                if all_done == true {
+                if all_done {
                     break;
                 }
             }

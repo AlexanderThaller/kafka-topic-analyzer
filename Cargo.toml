@@ -11,10 +11,11 @@ prettytable-rs = "0.6.7"
 futures = "^0.1.13"
 uuid = { version = "0.6.2", features = ["v4"] }
 chrono = "0.4"
+tokio-core = "^0.1.4"
 
 [dependencies.rdkafka]
 version = "~0.15"
-features = ["dynamic_linking"]
+
 
 [profile.dev]
 panic               = 'unwind'
