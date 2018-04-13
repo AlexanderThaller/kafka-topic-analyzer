@@ -67,7 +67,6 @@ pub fn read_topic_into_metrics(topic: &str,
                                metrics: &mut Metrics,
                                partitions: &[i32],
                                end_offsets: &HashMap<i32, i64>) {
-    let mut core = Core::new().unwrap();
     info!("Subscribing to {}", topic);
     consumer.subscribe(&[topic]).expect("Can't subscribe to specified topic");
     let message_stream = consumer.start();
@@ -80,86 +79,84 @@ pub fn read_topic_into_metrics(topic: &str,
         still_running.insert(p, true);
     }
 
-    let processed_stream = message_stream.filter_map(|result| {  // Filter out errors
-        match result {
-            Ok(msg) => Some(msg),
-            Err(kafka_error) => {
-                warn!("Error while receiving from Kafka: {:?}", kafka_error);
-                None
+    for message in message_stream.wait() {
+        match message {
+            Err(()) => {
+                warn!("Error while reading from stream");
+            }
+            Ok(Err(e)) => {
+                warn!("Kafka error: {}", e);
+            }
+            Ok(Ok(m)) => {
+                seq += 1;
+                let partition = m.partition();
+                let offset = m.offset();
+                let timestamp = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(m.timestamp().to_millis().unwrap() / 1000, 0), Utc);
+                let mut message_size: u64 = 0;
+                let mut empty_key = false;
+                let mut empty_value = false;
+
+                metrics.inc_overall_count();
+                metrics.inc_total(partition);
+
+                match m.key() {
+                    Some(k) => {
+                        metrics.inc_key_non_null(partition);
+                        let k_len = k.len() as u64;
+                        message_size += k_len;
+                        metrics.inc_key_size_sum(partition, k_len);
+                        metrics.inc_overall_size(k_len);
+                    },
+                    None => {
+                        empty_key = true;
+                        metrics.inc_key_null(partition);
+                    }
+                }
+
+                match m.payload() {
+                    Some(v) => {
+                        let v_len = v.len() as u64;
+                        message_size += v_len;
+                        metrics.inc_value_size_sum(partition, v_len);
+                        metrics.inc_overall_size(v_len);
+                        metrics.inc_alive(partition);
+                    },
+                    None => {
+                        empty_value = true;
+                        metrics.inc_tombstones(partition);
+                    }
+                }
+
+                metrics.cmp_and_set_message_timestamp(timestamp);
+
+                if !empty_key && !empty_value {
+                    metrics.cmp_and_set_message_size(message_size);
+                }
+
+                if seq % 50000 == 0 {
+                    info!("[Sq: {} | T: {} | P: {} | O: {} | Ts: {}]",
+                        seq, topic, partition, offset, timestamp);
+                }
+
+                if let Err(e) = consumer.store_offset(&m) {
+                    warn!("Error while storing offset: {}", e);
+                }
+
+                if (offset + 1) >= *end_offsets.get(&partition).unwrap() {
+                    *still_running.get_mut(&partition).unwrap() = false;
+                }
+
+                let mut all_done = true;
+                for running in still_running.values() {
+                    if *running {
+                        all_done = false;
+                    }
+                }
+
+                if all_done {
+                    break;
+                }
             }
         }
-    }).for_each(|m| {
-        seq += 1;
-        let partition = m.partition();
-        let offset = m.offset();
-        let timestamp = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(m.timestamp().to_millis().unwrap() / 1000, 0), Utc);
-        let mut message_size: u64 = 0;
-        let mut empty_key = false;
-        let mut empty_value = false;
-
-        metrics.inc_overall_count();
-        metrics.inc_total(partition);
-
-        match m.key() {
-            Some(k) => {
-                metrics.inc_key_non_null(partition);
-                let k_len = k.len() as u64;
-                message_size += k_len;
-                metrics.inc_key_size_sum(partition, k_len);
-                metrics.inc_overall_size(k_len);
-            }
-            None => {
-                empty_key = true;
-                metrics.inc_key_null(partition);
-            }
-        }
-
-        match m.payload() {
-            Some(v) => {
-                let v_len = v.len() as u64;
-                message_size += v_len;
-                metrics.inc_value_size_sum(partition, v_len);
-                metrics.inc_overall_size(v_len);
-                metrics.inc_alive(partition);
-            }
-            None => {
-                empty_value = true;
-                metrics.inc_tombstones(partition);
-            }
-        }
-
-        metrics.cmp_and_set_message_timestamp(timestamp);
-
-        if !empty_key && !empty_value {
-            metrics.cmp_and_set_message_size(message_size);
-        }
-
-        if seq % 50000 == 0 {
-            info!("[Sq: {} | T: {} | P: {} | O: {} | Ts: {}]",
-                  seq, topic, partition, offset, timestamp);
-        }
-
-        if let Err(e) = consumer.store_offset(&m) {
-            warn!("Error while storing offset: {}", e);
-        }
-
-        if (offset + 1) >= *end_offsets.get(&partition).unwrap() {
-            *still_running.get_mut(&partition).unwrap() = false;
-        }
-
-        let mut all_done = true;
-        for running in still_running.values() {
-            if *running {
-                all_done = false;
-            }
-        }
-
-        if all_done {
-            Err(())
-        } else {
-            Ok(())
-        }
-    });
-
-    core.run(processed_stream).unwrap();
+    }
 }
